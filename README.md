@@ -476,7 +476,360 @@ To protect against LDAP injection:
 4. Monitor logs for unusual LDAP activity.
 5. Regularly test for LDAP injection using automated tools or manual penetration testing.
 
-These examples should provide a clearer understanding of how LDAP injection can manifest and the steps necessary to prevent it effectively. Let me know if you'd like to dive deeper into any specific scenario!
+Here are **additional LDAP injection examples** to explore even deeper nuances and attack scenarios, including more sophisticated manipulations of LDAP queries:
 
+---
+
+### **Example 8: Exploiting Wildcard Characters**
+
+#### Scenario:
+
+A web application allows users to search for contacts by their first or last names.
+
+**Vulnerable Code:**
+
+```python
+def search_contacts(name):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable query
+    search_filter = f"(cn=*{name}*)"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=contacts,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        for dn, entry in results:
+            print(f"Contact: {dn}")
+    except Exception as e:
+        print(f"Error: {e}")
+```
+
+#### Attack:
+
+An attacker provides:
+
+* `name = `*)(cn=*))(|(cn=\*\`
+
+Resulting query:
+
+```plaintext
+(cn=*)(cn=*))(|(cn=*))
+```
+
+This query matches **every contact entry**, leaking sensitive data.
+
+---
+
+#### Mitigation:
+
+Escape user input using a library like `ldap.filter.escape_filter_chars` or enforce strict validation rules (e.g., no special characters).
+
+---
+
+### **Example 9: Injecting Negation Logic**
+
+#### Scenario:
+
+An application uses LDAP to verify that a user's account is not deactivated.
+
+**Vulnerable Code:**
+
+```python
+def is_active_user(username):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable query
+    search_filter = f"(&(uid={username})(!(accountStatus=deactivated)))"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=users,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return bool(results)
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+```
+
+#### Attack:
+
+The attacker inputs:
+
+* `username = `*)(accountStatus=deactivated))(|(uid=*\`
+
+Resulting query:
+
+```plaintext
+(&(uid=*)(accountStatus=deactivated))(|(uid=*))
+```
+
+This query bypasses the negation and matches all users.
+
+---
+
+#### Mitigation:
+
+Always sanitize user inputs and escape special characters like `!` and `)`.
+
+---
+
+### **Example 10: Injecting Arbitrary Filters**
+
+#### Scenario:
+
+An application uses LDAP to retrieve information about a user’s group memberships.
+
+**Vulnerable Code:**
+
+```python
+def get_user_groups(username):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable query
+    search_filter = f"(&(uid={username})(objectClass=group))"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=groups,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return results
+    except Exception as e:
+        print(f"Error: {e}")
+```
+
+#### Attack:
+
+An attacker provides:
+
+* `username = `*)(|(objectClass=*))\`
+
+Resulting query:
+
+```plaintext
+(&(uid=*)(|(objectClass=*)))
+```
+
+This matches **all objects** in the directory.
+
+---
+
+#### Mitigation:
+
+Escape user inputs and ensure that only valid usernames can be passed into the query.
+
+---
+
+### **Example 11: Extracting Attributes**
+
+#### Scenario:
+
+An application fetches detailed attributes of a user profile using LDAP.
+
+**Vulnerable Code:**
+
+```python
+def fetch_user_attributes(username):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable query
+    search_filter = f"(uid={username})"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=users,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return results
+    except Exception as e:
+        print(f"Error: {e}")
+```
+
+#### Attack:
+
+The attacker provides:
+
+* `username = `*)(|(uid=admin)(userPassword=*))\`
+
+Resulting query:
+
+```plaintext
+(uid=*)(|(uid=admin)(userPassword=*))
+```
+
+This query exposes sensitive data like user passwords.
+
+---
+
+#### Mitigation:
+
+* Validate `username` input strictly.
+* Limit the attributes returned by LDAP queries using projections (e.g., only `cn` and `email`).
+
+---
+
+### **Example 12: Multi-Field Exploitation**
+
+#### Scenario:
+
+The application retrieves user data based on multiple attributes (e.g., username and department).
+
+**Vulnerable Code:**
+
+```python
+def get_user_by_dept(username, department):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable query
+    search_filter = f"(&(uid={username})(department={department}))"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=users,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return results
+    except Exception as e:
+        print(f"Error: {e}")
+```
+
+#### Attack:
+
+The attacker inputs:
+
+* `username = `*)(department=HR))(|(uid=*\`
+* `department = any_value`
+
+Resulting query:
+
+```plaintext
+(&(uid=*)(department=HR))(|(uid=*))
+```
+
+This retrieves all users in the HR department, bypassing the username filter.
+
+---
+
+#### Mitigation:
+
+Escape all inputs and use parameterized queries.
+
+---
+
+### **Example 13: Exploiting Query Logic to Create Subqueries**
+
+#### Scenario:
+
+The application searches for user accounts based on their `uid` and `role`.
+
+**Vulnerable Code:**
+
+```python
+def search_users(uid, role):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable query
+    search_filter = f"(&(uid={uid})(role={role}))"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=users,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return results
+    except Exception as e:
+        print(f"Error: {e}")
+```
+
+#### Attack:
+
+An attacker could craft input like:
+
+* `uid = `*)(|(uid=*))\`
+* `role = any_role`
+
+Resulting query:
+
+```plaintext
+(&(uid=*)(|(uid=*)))(role=any_role))
+```
+
+This query matches all users, bypassing any restrictions based on `uid`.
+
+---
+
+#### Mitigation:
+
+* Use predefined lists or dictionaries to enforce valid input values.
+* Escape all user inputs.
+
+---
+
+### **Example 14: Exploiting Case-Insensitive Searches**
+
+#### Scenario:
+
+LDAP queries are often case-insensitive. An application searches for users by their email address.
+
+**Vulnerable Code:**
+
+```python
+def search_by_email(email):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable query
+    search_filter = f"(mail={email})"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=users,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return results
+    except Exception as e:
+        print(f"Error: {e}")
+```
+
+#### Attack:
+
+The attacker provides:
+
+* `email = `*)(mail=*\`
+
+Resulting query:
+
+```plaintext
+(mail=*)(mail=*)
+```
+
+This leaks all email addresses.
+
+---
+
+#### Mitigation:
+
+* Sanitize user input.
+* Ensure that searches for specific attributes (e.g., `mail`) are strictly formatted.
+
+---
+
+### General Prevention Best Practices
+
+1. **Escape User Inputs**:
+   Use libraries like `ldap.filter.escape_filter_chars` to escape special characters.
+
+   ```python
+   from ldap.filter import escape_filter_chars
+   username = escape_filter_chars(username)
+   ```
+
+2. **Use Parameterized Queries**:
+   Whenever possible, use parameterized queries supported by your LDAP library.
+
+3. **Validate Inputs**:
+   Ensure inputs are alphanumeric or match specific patterns using regex.
+
+   ```python
+   import re
+   if not re.match(r"^[a-zA-Z0-9@.]+$", email):
+       raise ValueError("Invalid input")
+   ```
+
+4. **Limit Query Scope**:
+   Restrict the query base DN and scope to minimize the impact of potential injection.
+
+5. **Test for Vulnerabilities**:
+   Use tools like OWASP ZAP, Burp Suite, or custom scripts to identify vulnerabilities.
+
+If you need more examples or details on specific cases, let me know!
 
 
