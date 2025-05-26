@@ -236,5 +236,247 @@ Here are some common LDAP injection payloads for testing:
 2. `admin*)(objectClass=*))(|(uid=*` - Bypasses authentication by manipulating filters.
 3. `*` - Attempts to match all records.
 
-By implementing the above mitigation strategies, you can safeguard your applications against LDAP injection attacks.
+Here are **more LDAP injection examples** that demonstrate various scenarios of exploitation, including different query manipulations and payload types. These examples will help you understand the depth of the vulnerability and how it can be exploited.
+
+---
+
+### **Example 3: Privilege Escalation**
+
+#### Scenario:
+
+An application uses an LDAP query to determine if a user belongs to the "Admin" group by checking their membership in the directory.
+
+**Vulnerable Code:**
+
+```python
+def is_admin(username):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable search filter
+    search_filter = f"(&(uid={username})(memberOf=cn=Admin,ou=groups,dc=example,dc=com))"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=users,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return bool(results)
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+```
+
+#### Attack:
+
+An attacker could manipulate the username input as:
+
+* `username = `*)(memberOf=cn=Admin,ou=groups,dc=example,dc=com))(|(uid=*\`
+
+This results in the query:
+
+```plaintext
+(&(uid=*)(memberOf=cn=Admin,ou=groups,dc=example,dc=com))(|(uid=*))
+```
+
+This query evaluates to true, effectively making the attacker appear as an admin.
+
+---
+
+#### Mitigation:
+
+Escape user input or implement strict validation rules to ensure the `username` field only contains valid values.
+
+---
+
+### **Example 4: Searching with Injection**
+
+#### Scenario:
+
+An application allows users to search for employees based on their department.
+
+**Vulnerable Code:**
+
+```python
+def search_by_department(department):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable query
+    search_filter = f"(department={department})"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=employees,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        for dn, entry in results:
+            print(f"Employee: {dn}")
+    except Exception as e:
+        print(f"Error: {e}")
+```
+
+#### Attack:
+
+The attacker provides:
+
+* `department = `*)(|(department=*))\`
+
+Resulting query:
+
+```plaintext
+(department=*)(|(department=*))
+```
+
+This matches all departments, leaking information about all employees.
+
+---
+
+#### Mitigation:
+
+Use libraries like `ldap.filter.escape_filter_chars` to sanitize input or enforce a strict whitelist of acceptable department names.
+
+---
+
+### **Example 5: Injecting Logical Operators**
+
+#### Scenario:
+
+An application retrieves user profiles by a combination of fields like `uid` and `email`.
+
+**Vulnerable Code:**
+
+```python
+def get_user_profile(uid, email):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable filter
+    search_filter = f"(&(uid={uid})(email={email}))"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=users,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return results
+    except Exception as e:
+        print(f"Error: {e}")
+```
+
+#### Attack:
+
+The attacker provides:
+
+* `uid = `*)(|(uid=*\`
+* `email = `*)(|(email=*\`
+
+Resulting query:
+
+```plaintext
+(&(uid=*)(|(uid=*))(email=*)(|(email=*)))
+```
+
+This query leaks all user profiles by combining injected logical operators.
+
+---
+
+#### Mitigation:
+
+* Escape special characters.
+* Validate inputs using regex.
+* Avoid concatenating user inputs into query strings.
+
+---
+
+### **Example 6: Exploiting Special Characters**
+
+#### Scenario:
+
+The application checks if an account is locked using an LDAP query.
+
+**Vulnerable Code:**
+
+```python
+def is_account_locked(username):
+    ldap_server = "ldap://localhost:389"
+    conn = ldap.initialize(ldap_server)
+    
+    # Vulnerable filter
+    search_filter = f"(&(uid={username})(accountStatus=locked))"
+    try:
+        conn.simple_bind_s()
+        results = conn.search_s("ou=users,dc=example,dc=com", ldap.SCOPE_SUBTREE, search_filter)
+        return bool(results)
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+```
+
+#### Attack:
+
+An attacker provides:
+
+* `username = `*)(accountStatus=locked))(|(uid=*\`
+
+Resulting query:
+
+```plaintext
+(&(uid=*)(accountStatus=locked))(|(uid=*))
+```
+
+This query falsely reports that every account is locked.
+
+---
+
+#### Mitigation:
+
+Escape special characters in `username` to prevent this attack.
+
+---
+
+### **Example 7: Advanced LDAP Injection Payloads**
+
+Here are some advanced payloads attackers might use:
+
+1. **Returning All Users**:
+
+   * Input: `*)(|(uid=*))`
+   * Query: `(&(uid=*)(|(uid=*)))`
+
+2. **Injecting OR Conditions**:
+
+   * Input: `*)(|(objectClass=person))`
+   * Query: `(&(uid=*)(|(objectClass=person)))`
+
+3. **Bypassing Filters**:
+
+   * Input: `*)(!(uid=*))`
+   * Query: `(&(uid=*)(!(uid=*)))`
+
+4. **Matching Specific Attributes**:
+
+   * Input: `*)(uid=admin)`
+   * Query: `(&(uid=*)(uid=admin))`
+
+---
+
+### **Testing for LDAP Injection**
+
+You can test LDAP injection using these tools and methods:
+
+1. **Payload Testing**: Use the above payloads on input fields.
+2. **Penetration Testing Tools**:
+
+   * **OWASP ZAP**
+   * **Burp Suite**
+3. **Custom Python Scripts**:
+   Use Python to simulate different inputs and analyze server responses.
+
+---
+
+### **Summary of Mitigations**
+
+To protect against LDAP injection:
+
+1. Use parameterized queries or escape user inputs using libraries like `ldap.filter.escape_filter_chars`.
+2. Validate inputs rigorously with regex or predefined whitelists.
+3. Implement least privilege principles for LDAP accounts.
+4. Monitor logs for unusual LDAP activity.
+5. Regularly test for LDAP injection using automated tools or manual penetration testing.
+
+These examples should provide a clearer understanding of how LDAP injection can manifest and the steps necessary to prevent it effectively. Let me know if you'd like to dive deeper into any specific scenario!
+
+
 
